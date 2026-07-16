@@ -5,12 +5,33 @@ Processes a TC Report CSV into a 4-sheet workbook: **Raw Data**,
 "Prepare Pending Order Reports, Generate ERP Exception Report, Pivot
 Summary" spec.
 
+Two ways to run it:
+- **`app.py`** — a Streamlit dashboard (upload a CSV, click Process, preview every sheet, download the workbook). Deployable to Streamlit Community Cloud.
+- **`main.py`** — a CLI for scheduled/headless runs.
+
+Both import the same package, **`tc_report_processor/`**, which sits at the
+repo root as a plain sibling of `app.py`/`main.py` (no `src/`-layout, no
+`sys.path` manipulation) — this is deliberate: `src/`-layout packages need
+either an editable install (`pip install -e .`) or manual `sys.path`
+insertion to be importable, and the latter is a common source of
+`ModuleNotFoundError` on platforms like Streamlit Cloud where the working
+directory assumptions don't always match a local dev setup. A flat layout
+just works with a plain `import tc_report_processor...` everywhere.
+
 ## Quick start
 
 ```bash
 pip install -r requirements.txt
 python main.py path/to/tc_report.csv -o output.xlsx
+# or, for the dashboard:
+streamlit run app.py
 ```
+
+## Deploy the dashboard to Streamlit Community Cloud
+
+1. Push this repo to GitHub. **Double-check the `tc_report_processor/` folder and all its `.py` files actually appear in the GitHub file tree** — if you upload via the web UI rather than `git push`, nested folders can silently fail to upload.
+2. On [share.streamlit.io](https://share.streamlit.io), create a new app pointing at this repo, branch `main`, main file path **`app.py`** (not `main.py` — that's the CLI).
+3. Deploy. No secrets needed — this tool only processes an uploaded CSV in memory and hands back a file; nothing touches external accounts.
 
 A synthetic sample file covering every filtering rule is included at
 `sample_data/tc_report_sample.csv` — try it first:

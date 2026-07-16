@@ -3,13 +3,9 @@ from __future__ import annotations
 
 import argparse
 import logging
-import sys
 from datetime import datetime
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent / "src"))
-
-from tc_report_processor.pipeline import run_pipeline  # noqa: E402
+from tc_report_processor.pipeline import run_pipeline
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
