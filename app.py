@@ -53,88 +53,23 @@ if uploaded_file is not None:
         preview_df = pd.read_csv(uploaded_file, nrows=5)
         cols = list(preview_df.columns)
         
-        st.sidebar.markdown("### ⚙️ Column Configurations")
-        st.sidebar.info("Adjust the column mapping below if the auto-detection mismatches your file headers.")
-
-        # Robust Auto-detection helper
-        def get_default_select_idx(col_key, possible_names, default_idx):
-            detected = find_column(preview_df, possible_names, default_idx)
-            if detected in cols:
-                return cols.index(detected)
-            return 0
-
-        # Create configurations in sidebar
-        m_channel_idx = get_default_select_idx('marketplace_channel', ['Marketplace Channel', 'marketplace_channel', 'channel', 'marketplace'], 0)
-        marketplace_col = st.sidebar.selectbox("Marketplace Channel Column", cols, index=m_channel_idx)
-
-        order_no_idx = get_default_select_idx('order_number', ['order_number', 'order number', 'ordernumber', 'order_no', 'order no'], 1)
-        order_number_col = st.sidebar.selectbox("Order Number Column (Col B)", cols, index=order_no_idx)
-
-        payment_status_idx = get_default_select_idx('payment_status', ['payment_status', 'payment status', 'paymentstatus', 'pay_status'], 6)
-        payment_status_col = st.sidebar.selectbox("Payment Status Column (Col G)", cols, index=payment_status_idx)
-
-        order_id_idx = get_default_select_idx('order_id', ['order_id', 'order id', 'orderid'], 7)
-        order_id_col = st.sidebar.selectbox("Order ID Column", cols, index=order_id_idx)
-
-        order_status_idx = get_default_select_idx('order_status', ['order_status', 'order status', 'orderstatus'], 8)
-        order_status_col = st.sidebar.selectbox("Order Status Column", cols, index=order_status_idx)
-
-        order_item_status_idx = get_default_select_idx('order_item_status', ['order_item_status', 'order item status', 'orderitemstatus', 'item_status'], 9)
-        order_item_status_col = st.sidebar.selectbox("Order Item Status Column (Col J)", cols, index=order_item_status_idx)
-
-        courier_name_idx = get_default_select_idx('courier_name', ['courier_name', 'courier name', 'couriername', 'courier'], 10)
-        courier_name_col = st.sidebar.selectbox("Courier Name Column", cols, index=courier_name_idx)
-
-        tracking_number_idx = get_default_select_idx('tracking_number', ['tracking_number', 'tracking number', 'trackingnumber', 'tracking_no', 'awb'], 11)
-        tracking_number_col = st.sidebar.selectbox("Tracking Number Column", cols, index=tracking_number_idx)
-
-        ordered_date_idx = get_default_select_idx('ordered_date', ['ordered_date', 'ordered date', 'ordereddate', 'order_date', 'created_at'], 12)
-        ordered_date_col = st.sidebar.selectbox("Ordered Date Column", cols, index=ordered_date_idx)
-
-        accepted_date_idx = get_default_select_idx('accepted_date', ['accepted_date', 'accepted date', 'accepteddate', 'accept_date'], 13)
-        accepted_date_col = st.sidebar.selectbox("Accepted Date Column", cols, index=accepted_date_idx)
-
-        nickname_idx = get_default_select_idx('nickname', ['nickname', 'nick name', 'username', 'buyer_username'], 14)
-        nickname_col = st.sidebar.selectbox("Nickname Column", cols, index=nickname_idx)
-
-        time_shippinglabel_printed_idx = get_default_select_idx('time_shippinglabel_printed', ['time_shippinglabel_printed', 'time shippinglabel printed', 'label_printed_time'], 15)
-        time_shippinglabel_printed_col = st.sidebar.selectbox("Time Shipping Label Printed Column", cols, index=time_shippinglabel_printed_idx)
-
-        time_order_paid_idx = get_default_select_idx('time_order_paid', ['time_order_paid', 'time order paid', 'order_paid_time'], 16)
-        time_order_paid_col = st.sidebar.selectbox("Time Order Paid Column", cols, index=time_order_paid_idx)
-
-        payment_methods_idx = get_default_select_idx('payment_methods', ['payment_methods', 'payment methods', 'paymentmethod', 'payment_method', 'pay_method'], 60)
-        payment_methods_col = st.sidebar.selectbox("Payment Methods Column (Col BI)", cols, index=payment_methods_idx)
-
-        erp_reference_id_idx = get_default_select_idx('erp_reference_id', ['erp_reference_id', 'erp reference id', 'erpreferenceid', 'erp_ref_id'], 67)
-        erp_reference_id_col = st.sidebar.selectbox("ERP Reference ID Column (Col BP)", cols, index=erp_reference_id_idx)
-
-        # Date input for Part 3 Status Alert (Defaulting to the user's current system local time)
-        st.sidebar.markdown("### 🕒 Alert Threshold Reference Time")
-        current_system_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        custom_ref_time = st.sidebar.text_input(
-            "Reference Time (YYYY-MM-DD HH:MM:SS)", 
-            value=current_system_time_str,
-            help="The reference time used to check if orders are in 'New' status for more than 1 hour."
-        )
-
-        # Build column mapping dictionary
+        # Automatically map column headers
         column_mapping = {
-            'marketplace_channel': marketplace_col,
-            'order_number': order_number_col,
-            'payment_status': payment_status_col,
-            'order_id': order_id_col,
-            'order_status': order_status_col,
-            'order_item_status': order_item_status_col,
-            'courier_name': courier_name_col,
-            'tracking_number': tracking_number_col,
-            'ordered_date': ordered_date_col,
-            'accepted_date': accepted_date_col,
-            'nickname': nickname_col,
-            'time_shippinglabel_printed': time_shippinglabel_printed_col,
-            'time_order_paid': time_order_paid_col,
-            'payment_methods': payment_methods_col,
-            'erp_reference_id': erp_reference_id_col
+            'marketplace_channel': find_column(preview_df, ['Marketplace Channel', 'marketplace_channel', 'channel', 'marketplace'], 0),
+            'order_number': find_column(preview_df, ['order_number', 'order number', 'ordernumber', 'order_no', 'order no'], 1),
+            'payment_status': find_column(preview_df, ['payment_status', 'payment status', 'paymentstatus', 'pay_status'], 6),
+            'order_id': find_column(preview_df, ['order_id', 'order id', 'orderid'], 7),
+            'order_status': find_column(preview_df, ['order_status', 'order status', 'orderstatus'], 8),
+            'order_item_status': find_column(preview_df, ['order_item_status', 'order item status', 'orderitemstatus', 'item_status'], 9),
+            'courier_name': find_column(preview_df, ['courier_name', 'courier name', 'couriername', 'courier'], 10),
+            'tracking_number': find_column(preview_df, ['tracking_number', 'tracking number', 'trackingnumber', 'tracking_no', 'awb'], 11),
+            'ordered_date': find_column(preview_df, ['ordered_date', 'ordered date', 'ordereddate', 'order_date', 'created_at'], 12),
+            'accepted_date': find_column(preview_df, ['accepted_date', 'accepted date', 'accepteddate', 'accept_date'], 13),
+            'nickname': find_column(preview_df, ['nickname', 'nick name', 'username', 'buyer_username'], 14),
+            'time_shippinglabel_printed': find_column(preview_df, ['time_shippinglabel_printed', 'time shippinglabel printed', 'label_printed_time'], 15),
+            'time_order_paid': find_column(preview_df, ['time_order_paid', 'time order paid', 'order_paid_time'], 16),
+            'payment_methods': find_column(preview_df, ['payment_methods', 'payment methods', 'paymentmethod', 'payment_method', 'pay_method'], 60),
+            'erp_reference_id': find_column(preview_df, ['erp_reference_id', 'erp reference id', 'erpreferenceid', 'erp_ref_id'], 67)
         }
 
         # Process report button
@@ -146,12 +81,7 @@ if uploaded_file is not None:
                 # Read all columns as string first to prevent losing precision/sci-notation on B (order_number)
                 raw_df = pd.read_csv(uploaded_file, dtype=str)
 
-                # Parse custom date
-                try:
-                    ref_datetime = datetime.strptime(custom_ref_time.strip(), "%Y-%m-%d %H:%M:%S")
-                except Exception as ex:
-                    st.error(f"Invalid reference time format. Please use YYYY-MM-DD HH:MM:SS (e.g., 2026-07-16 09:01:59).")
-                    ref_datetime = datetime.now()
+                ref_datetime = datetime.now()
 
                 # Process
                 new_status_alert, final_report, pivot_summary = process_report_data(
