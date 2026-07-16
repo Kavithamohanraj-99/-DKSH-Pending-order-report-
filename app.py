@@ -1,8 +1,8 @@
-"""Streamlit dashboard for tc_report_processor.
+"""Streamlit dashboard for tc_pipeline.
 
 Deploy: point Streamlit Community Cloud at this file (main file path =
-app.py). No credentials needed — this tool only processes a CSV you upload
-and hands back a workbook, nothing touches external accounts.
+app.py). No credentials needed — this only processes an uploaded CSV in
+memory and hands back a workbook.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import pandas as pd
 import streamlit as st
 from openpyxl import load_workbook
 
-from tc_report_processor.pipeline import run_pipeline
+from tc_pipeline import run_pipeline
 
 st.set_page_config(page_title="TC Report Processor", page_icon="📊", layout="wide")
 

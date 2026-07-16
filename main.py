@@ -5,7 +5,7 @@ import argparse
 import logging
 from datetime import datetime
 
-from tc_report_processor.pipeline import run_pipeline
+from tc_pipeline import run_pipeline
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -26,15 +26,14 @@ def main() -> None:
         "--marketplace-column",
         default=None,
         help="Header name for the marketplace channel column, if it isn't "
-        "literally 'marketplace_channel' in your file (see columns.py notes "
-        "on why this is needed for the Part 3 pivot).",
+        "literally 'marketplace_channel' in your file.",
     )
     parser.add_argument(
         "--now",
         default=None,
         help="ISO datetime to use as 'current time' for the New Status "
-        "Alert cutoff (default: live system clock). Useful for backfills "
-        "or reproducible test runs, e.g. --now 2026-07-16T15:00:00",
+        "Alert cutoff (default: live system clock), e.g. "
+        "--now 2026-07-16T15:00:00",
     )
     args = parser.parse_args()
 

@@ -1,124 +1,85 @@
 # tc-report-processor
 
 Processes a TC Report CSV into a 4-sheet workbook: **Raw Data**,
-**New Status Alert**, **Final Report**, **Pivot Summary** — per the
-"Prepare Pending Order Reports, Generate ERP Exception Report, Pivot
-Summary" spec.
+**New Status Alert**, **Final Report**, **Pivot Summary**.
 
-Two ways to run it:
-- **`app.py`** — a Streamlit dashboard (upload a CSV, click Process, preview every sheet, download the workbook). Deployable to Streamlit Community Cloud.
-- **`main.py`** — a CLI for scheduled/headless runs.
+## Why this version is one flat file
 
-Both import the same package, **`tc_report_processor/`**, which sits at the
-repo root as a plain sibling of `app.py`/`main.py` (no `src/`-layout, no
-`sys.path` manipulation) — this is deliberate: `src/`-layout packages need
-either an editable install (`pip install -e .`) or manual `sys.path`
-insertion to be importable, and the latter is a common source of
-`ModuleNotFoundError` on platforms like Streamlit Cloud where the working
-directory assumptions don't always match a local dev setup. A flat layout
-just works with a plain `import tc_report_processor...` everywhere.
+Earlier versions put the processing logic in a `src/tc_report_processor/`
+package, then a top-level `tc_report_processor/` package. Both times, the
+package folder failed to actually reach the deployed GitHub repo (likely
+from uploading files individually via the GitHub web UI rather than
+`git push`), causing `ModuleNotFoundError` on Streamlit Cloud even though
+everything worked locally.
 
-## Quick start
+This version has **no subfolders for code at all** — `tc_pipeline.py`,
+`app.py`, and `main.py` all sit directly in the repo root. A single file
+next to `app.py` can't be "partially" uploaded the way a nested folder
+can: if `app.py` made it into the repo, `tc_pipeline.py` did too.
 
+```
+tc-report-processor/
+├── app.py              # Streamlit dashboard
+├── main.py              # CLI
+├── tc_pipeline.py        # all processing logic (columns, cleaning, filtering, pivot, workbook writer)
+├── requirements.txt
+├── sample_data/
+│   └── tc_report_sample.csv   # synthetic file covering every rule, for testing
+└── README.md
+```
+
+## Run it
+
+Dashboard:
 ```bash
 pip install -r requirements.txt
-python main.py path/to/tc_report.csv -o output.xlsx
-# or, for the dashboard:
 streamlit run app.py
 ```
 
-## Deploy the dashboard to Streamlit Community Cloud
-
-1. Push this repo to GitHub. **Double-check the `tc_report_processor/` folder and all its `.py` files actually appear in the GitHub file tree** — if you upload via the web UI rather than `git push`, nested folders can silently fail to upload.
-2. On [share.streamlit.io](https://share.streamlit.io), create a new app pointing at this repo, branch `main`, main file path **`app.py`** (not `main.py` — that's the CLI).
-3. Deploy. No secrets needed — this tool only processes an uploaded CSV in memory and hands back a file; nothing touches external accounts.
-
-A synthetic sample file covering every filtering rule is included at
-`sample_data/tc_report_sample.csv` — try it first:
-
+CLI:
 ```bash
-python main.py sample_data/tc_report_sample.csv -o /tmp/demo.xlsx --now 2026-07-16T15:00:00
+python main.py path/to/tc_report.csv -o output.xlsx
+python main.py sample_data/tc_report_sample.csv -o demo.xlsx --now 2026-07-16T15:00:00
 ```
 
-(`--now` pins the "current time" used for the New Status Alert cutoff —
-useful for reproducible test runs; omit it in production to use the live
-clock.)
+## Deploy to Streamlit Community Cloud
 
-## How the spec maps to code
+1. **Push with `git push`, not the GitHub web upload UI.** If you must use
+   the web UI, use "Add file → Upload files" and drag all files in
+   *one single drop* (including `sample_data/tc_report_sample.csv`) rather
+   than creating them one at a time.
+2. After pushing, open the repo on GitHub and confirm you see exactly
+   these files at the root: `app.py`, `main.py`, `tc_pipeline.py`,
+   `requirements.txt`. If `tc_pipeline.py` isn't listed, Streamlit Cloud
+   will fail with `ModuleNotFoundError: No module named 'tc_pipeline'`
+   again — that check takes ten seconds and would have caught both
+   previous failures before deploying.
+3. On [share.streamlit.io](https://share.streamlit.io), point the app at
+   this repo, branch `main`, main file path `app.py`.
 
-| Spec section | Module |
-|---|---|
-| Part 1 / Step 1 — backup, "Raw Data" tab, never modified | `io_utils.py` loads the file twice-conceptually: `raw_df` is written straight to the Raw Data sheet and never touched again |
-| Part 1 / Step 2 — order_number as text, trim whitespace, validate erp_reference_id | `io_utils.py` (text dtype on read), `cleaning.py` (trim + 11-digit validation) |
-| Part 1 / Step 3 — filter records | `filtering.py: filter_records()` |
-| Part 1 / Step 4 — New Status Alert | `filtering.py: new_status_alert()` |
-| Part 2 — Final Report (column selection + dedup) | `final_report.py` |
-| Part 3 — Pivot Summary | `pivot.py` |
-| Part 4 — assemble workbook | `workbook_writer.py` |
-| Everything end-to-end | `pipeline.py: run_pipeline()` |
+## Spec-mapping and known assumptions
 
-## Column resolution: letters vs. header names
+`tc_pipeline.py` is organized in sections mirroring the spec, top to
+bottom: column resolution → loading → cleaning (Step 2) → filtering
+(Step 3) → New Status Alert (Step 4) → Final Report (Part 2) → Pivot
+Summary (Part 3) → workbook writer (Part 4) → orchestration.
 
-The spec identifies several columns by spreadsheet letter (`Column B` =
-order_number, `Column J` = order_item_status, `Column G` = payment_status,
-`Column BI` = payment_methods, `Column BP` = erp_reference_id). Real CSV
-exports vary in header text, so `columns.py` resolves each letter to
-whatever header is actually at that position in your file, and logs a
-warning if it doesn't resemble the expected name (rather than silently
-reading the wrong column, or hard-failing on a minor naming difference).
-
-If your TC Report template doesn't put those five fields in those exact
-positions, this will misread your file — check the warning log on first
-run against a new export.
-
-## Known gap in the source spec (and the assumption made to resolve it)
-
-**Part 3 requires "Marketplace Channel" as a pivot row dimension, but
-Part 2's retained-column list for the Final Report does not include a
-marketplace/channel column** — so as written, the pivot can't be built
-from the Final Report at all.
-
-This pipeline assumes the Final Report should also retain a
-`marketplace_channel` column so the pivot works (see the note in
-`columns.py`). If your actual TC Report uses a different header for this
-field, either rename it to `marketplace_channel` upstream or pass:
-
-```bash
-python main.py input.csv -o output.xlsx --marketplace-column "Your Header Name"
-```
-
-## Other interpretive decisions worth knowing about
-
-- **New Status Alert is built from the *filtered* (Step 3) record set**,
-  not the full raw file — the spec places Step 4 immediately after Step 3
-  filtering and frames it as highlighting stale orders among the ones
-  still being tracked (already-cancelled orders, for instance, aren't
-  "stuck in New").
-- **erp_reference_id validity (11-digit check) doesn't gate filtering.**
-  Step 3 only checks blank-vs-populated. A populated-but-malformed value
-  (not exactly 11 digits) is logged as a data-quality warning
-  (`invalid_erp_reference_rows` in the run summary) but doesn't get
-  excluded or included differently — the spec doesn't say what to do with
-  it beyond "verify."
-- **ordered_date pivot columns are bucketed to calendar date**, not full
-  timestamp, since the spec asks for one pivot column per date and
-  "automatically expand[ing]" based on dates present.
-- **Pivot values are computed in Python and written as static numbers**,
-  not native Excel `PivotTable` objects or formulas — openpyxl can't
-  create a true interactive Excel pivot table. If you need a real
-  refreshable pivot (right-click → Refresh in Excel), you'd need to build
-  it from a template `.xlsx` with an existing PivotCache via a different
-  approach (e.g. `xlwings` against a real Excel instance, or a VBA-driven
-  template). Flagging this rather than quietly shipping something that
-  looks like a pivot but doesn't behave like one.
-
-## Tests
-
-```bash
-pip install pytest
-pytest tests/ -v
-```
-
-Covers: full pipeline row counts against the synthetic sample, sheet
-names/order, Raw Data staying untouched (including preserved whitespace),
-Final Report column order, and pivot grand totals.
+- **Columns are resolved by spreadsheet letter** (B, G, J, BI, BP) against
+  whatever header text is actually at that position in your file — logs a
+  warning if it doesn't look like the expected name, rather than silently
+  reading the wrong column.
+- **The Part 3 pivot needs a "Marketplace Channel" column that Part 2's
+  retained-column list doesn't include** — a gap in the source spec. This
+  pipeline assumes the Final Report should also retain
+  `marketplace_channel`; pass `--marketplace-column "Your Header"` (CLI)
+  or set it in the sidebar (dashboard) if your file names it differently.
+- **New Status Alert runs on the already-filtered (Step 3) record set**,
+  not the raw file, since Step 4 is defined right after filtering and is
+  about highlighting stale orders among ones still being tracked.
+- **erp_reference_id's 11-digit check doesn't gate filtering** — Step 3
+  only checks blank-vs-populated. Malformed-but-populated values are
+  logged as a data-quality warning (`invalid_erp_reference_rows`), not
+  excluded or included differently.
+- **Pivot Summary is a computed static table**, not a native interactive
+  Excel PivotTable — openpyxl can't create those. It looks like a pivot
+  but won't "Refresh" in Excel; flagging so that's not a surprise.
