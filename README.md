@@ -1,146 +1,118 @@
-# tc-report-processor (v3, with diagnostics)
+# tc-report-processor (CLI-only)
 
 Processes a TC Report CSV into a 3-sheet workbook: **Raw Data**,
-**Final Report**, **Pivot Summary**.
-
-## Fixes in this update
-
-A real run against a 2070-row file produced 0 rows after Step 2.1 with no
-visible explanation. Two separate bugs caused that:
-
-1. **Column-mismatch and status-mismatch warnings only went to server
-   logs**, invisible in the Streamlit UI. Now `run_pipeline()` returns
-   them in its summary dict, and both `app.py` and `main.py` surface them
-   directly — including a table of the *actual* `order_item_status`
-   values found in your file with their counts, whenever Step 2.1 filters
-   out everything. This is the fix that actually matters for debugging:
-   next time this happens, you'll see immediately whether it's a wrong
-   column or unmatched status text, instead of just "0 rows."
-2. **A genuine pandas bug in the pipeline itself**: `.apply()` on an
-   *empty* Series returns `float64` dtype instead of `bool`, and indexing
-   a DataFrame with a non-bool empty mask silently drops **all columns**,
-   not just rows. This meant that if Step 2.1 ever filtered out
-   everything, the very next step would crash with a confusing
-   `KeyError` instead of completing with an empty (but valid) output.
-   Fixed by explicitly casting the mask to `bool`.
-3. **Status matching now normalizes spacing around `/`**, so
-   `"Accepted / Picked"` matches the whitelist the same as
-   `"ACCEPTED/PICKED"` — a formatting variant that would otherwise still
-   silently drop every row even with the diagnostics in place.
-
-If you still get 0 rows after this, the app will now tell you exactly
-which column it read as `order_item_status` and exactly what values it
-found there — that's enough to tell whether it's a column-position
-mismatch (wrong file layout) or a genuinely different status vocabulary
-than New/ACCEPTED-PICKED/READY TO SHIP.
-
-## Single flat file for the processing logic
-
-`tc_pipeline.py` sits directly next to `app.py`/`main.py` — no
-subfolders — because a prior package-based version of this repo
-repeatedly failed to fully upload to GitHub, causing `ModuleNotFoundError`
-on Streamlit Cloud.
+**Final Report**, **Pivot Summary**. No dashboard, no Streamlit — just a
+script.
 
 ```
 tc-report-processor/
-├── app.py              # Streamlit dashboard
 ├── main.py              # CLI
 ├── tc_pipeline.py        # all processing logic
 ├── requirements.txt
-├── sample_data/
-│   └── tc_report_sample.csv
-└── README.md
+└── sample_data/
+    └── tc_report_sample.csv
 ```
 
-## What changed from the previous version of this spec
+## Setup
 
-| Change | Detail |
-|---|---|
-| **New Status Alert sheet removed** | Part 6 now lists only 3 output sheets. This pipeline no longer builds that alert. |
-| **Final Report columns completely changed** | Now `order_number, order_item_status, payment_status, courier_name, tracking_number, ordered_date, accepted_date, nickname, payment_methods, time_shippinglabel_printed, erp_reference_id, time_order_paid` — resolved by spreadsheet letter (B, J, G, AP, AQ, AS, AV, BD, BI, BO, BP, BR). Note this drops `order_id` and `marketplace_channel` as retained columns entirely. |
-| **Pivot rows = nickname (BD), displayed as "Marketplace Channel"** | See assumption below — the spec says "rows = Nickname" but the example table's header reads "Marketplace Channel". |
-| **New color-coding rule** | Each date column in the Pivot Summary is filled red if the date is before today, green if it's today. Future dates are left unfilled (not specified). |
-| **Dedup happens before column deletion** | order_id isn't a retained Final Report column, so dedup on order_id has to happen while it's still present in the working data, before the "delete all remaining columns" step. |
-
-## Two assumptions made to resolve gaps in the spec
-
-1. **order_id's column isn't specified anywhere** (it's referenced only
-   for dedup — "Remove duplicate records using order_id" — but never
-   given a letter). Defaulted to **Column A**, the conventional
-   primary-key position in these exports. Override with
-   `--order-id-column` (CLI) or the sidebar field (dashboard) if your
-   file uses a different column.
-2. **Pivot row label vs. row values**: the spec's instruction says
-   `rows = Nickname (BD)`, but the reference example's row header is
-   "Marketplace Channel" with values like `lazada-Hiruscar`,
-   `shopee-aquamaris`. This pipeline pivots on the actual `nickname`
-   column's values (assuming that field already contains
-   channel-style identifiers, which the example supports) and just
-   labels the header "Marketplace Channel" to match the example. If your
-   real `nickname` values are just plain shop nicknames without a
-   channel prefix, the pivot will still work — the values will simply
-   look different from the reference image.
-
-## Run it
-
-Dashboard:
 ```bash
 pip install -r requirements.txt
-streamlit run app.py
 ```
 
-CLI:
+## Step 1: check your file's column layout BEFORE running the pipeline
+
 ```bash
-python main.py path/to/tc_report.csv -o output.xlsx
+python main.py your_real_file.csv --inspect
+```
+
+This prints every column position this pipeline reads from (by letter:
+A, B, G, J, AP, AQ, AS, AV, BD, BI, BO, BP, BR), what header it expects
+there, what header it actually found, and 5 real sample values — so a
+misaligned column shows up immediately as either `[MISMATCH?]` or an
+obviously wrong sample value, without running anything else. **Always run
+this first against a new file.**
+
+Example output:
+```
+    J (expects order_item_status           ): found 'order_item_status' [OK]  samples=['Cancelled', 'DELIVERED', 'New', 'New', 'ACCEPTED/PICKED']
+```
+If instead you saw something like:
+```
+    J (expects order_item_status           ): found 'warehouse_code' [MISMATCH?]  samples=['WH01', 'WH02', ...]
+```
+— that tells you column J in your file isn't order_item_status at all,
+which is exactly the kind of thing that silently produces 0 rows with no
+explanation.
+
+## Step 2: run the pipeline
+
+```bash
+python main.py your_real_file.csv -o output.xlsx
+```
+
+If Step 2.1 (the order-status whitelist) still filters out everything,
+the script prints the actual `order_item_status` values it found and
+their counts — so you can see whether it's a wording mismatch (e.g.
+`"Ready to Ship"` vs. the spec's `"READY TO SHIP"` — matching is
+case-insensitive, so casing alone isn't the issue, but different
+punctuation/wording would be) even after confirming the column itself is
+right.
+
+```bash
 python main.py sample_data/tc_report_sample.csv -o demo.xlsx --today 2026-07-16
 ```
 
-`--today` controls the Pivot Summary's red/green coloring — useful for
-reproducible test runs; omit it in production to use the live date.
+## Options
 
-## Deploy to Streamlit Community Cloud
+| Flag | Purpose |
+|---|---|
+| `--inspect` | Print column layout + samples, don't run the pipeline |
+| `-o / --output` | Output path (default `TC_Report_Processed.xlsx`). If it already exists, only the 3 target sheets are overwritten — other sheets in that workbook are left alone. |
+| `--order-id-column` | Spreadsheet letter for order_id, used only for dedup (default `A` — the spec never states this explicitly, see below) |
+| `--today` | ISO date for Pivot Summary's red/green coloring (default: live system date) |
 
-1. **Push with `git push`, not the GitHub web upload UI** if at all
-   possible. If you must use the web UI, upload all files in one single
-   drag-and-drop.
-2. Confirm `app.py`, `main.py`, `tc_pipeline.py`, and `requirements.txt`
-   are all visible at your repo's root on GitHub before deploying — if
-   `tc_pipeline.py` is missing, you'll get `ModuleNotFoundError`
-   regardless of anything on the code side.
-3. On [share.streamlit.io](https://share.streamlit.io), point the app at
-   this repo, branch `main`, main file path `app.py`.
+## Assumptions this pipeline makes (check these against your real file)
 
-## Other interpretive notes
+1. **order_id is Column A.** The spec dedups on order_id but never gives
+   it a letter — it isn't one of the retained Final Report columns
+   either. Override with `--order-id-column` if wrong.
+2. **Pivot rows come from `nickname` (Column BD), displayed with the
+   header "Marketplace Channel."** The spec literally says
+   `rows = Nickname`, but its example table's header reads "Marketplace
+   Channel" with values like `lazada-Hiruscar` — this assumes your
+   `nickname` field already contains channel-style values.
+3. **Column positions are exactly**: B=order_number, G=payment_status,
+   J=order_item_status, AP=courier_name, AQ=tracking_number,
+   AS=ordered_date, AV=accepted_date, BD=nickname, BI=payment_methods,
+   BO=time_shippinglabel_printed, BP=erp_reference_id, BR=time_order_paid.
+   Any extra or missing column anywhere before these positions in your
+   real file shifts everything after it — this is the single most likely
+   cause of a mismatch. `--inspect` catches this immediately.
 
-- **Columns are resolved by spreadsheet letter position**, per the spec
-  (B, G, J, AP, AQ, AS, AV, BD, BI, BO, BP, BR) — logs a warning if the
-  header found at that position doesn't resemble the expected name.
-- **Step 2.1's whitelist is implemented literally**: "Retain only records
-  with the following statuses" — anything not in {New, ACCEPTED/PICKED,
-  READY TO SHIP} is dropped, including values not on the spec's explicit
-  removal list either.
-- **Overwrite-in-place preserved from the prior version**: if the output
-  file already exists, only the 3 target sheets are replaced; any other
-  sheet in that workbook (e.g. manual notes) is left untouched.
-- **Pivot Summary is a computed static table with cell-level fills**, not
-  a native interactive Excel PivotTable — openpyxl can't create those.
+## Processing logic, in order
 
-## Tested against `sample_data/tc_report_sample.csv`
+1. Trim whitespace on every field; read order_number as text (no
+   scientific notation).
+2. **Step 2.1**: keep only rows where order_item_status is New,
+   ACCEPTED/PICKED, or READY TO SHIP (case-insensitive, tolerant of
+   spacing around `/`). Everything else — Cancelled, DELIVERED, SHIPPED,
+   RETURN*, etc. — is dropped here.
+3. **Part 2**: of the rows with a blank erp_reference_id, drop New +
+   Pending + non-COD combinations. Rows with a populated
+   erp_reference_id are excluded entirely (never reach the Final Report).
+4. **Part 4**: select the 12 retained columns, dedup by order_id (first
+   occurrence wins), save as Final Report.
+5. **Part 5**: pivot nickname × ordered_date, count of orders, Grand
+   Totals on every axis, date columns colored red (past) / green (today).
+6. **Part 6**: write Raw Data / Final Report / Pivot Summary into the
+   output workbook, preserving any other sheets already in that file.
 
-11 synthetic rows covering: each removal status, the New+Pending+non-COD
-removal, ACCEPTED/PICKED and READY TO SHIP retention, a populated-erp
-row, a duplicate order_id, whitespace-padded fields, and orders dated
-today/yesterday/two-days-ago (to exercise the red/green coloring).
-Hand-verified results:
+## Known pandas gotcha already fixed here
 
-```
-input_rows: 11
-after_status_filter: 8
-after_erp_filter: 6
-final_report_rows: 5
-```
-
-Pivot Summary date columns confirmed colored correctly (two red past-date
-columns, one green today column), and data cells — not just headers — are
-filled. Overwrite-in-place was re-tested: pre-seeding the output path
-with an unrelated "Notes" sheet survives a re-run.
+If a filtering step ever produces 0 rows, `.apply()` on an empty pandas
+Series returns `float64` dtype instead of `bool` — and using that as a
+boolean mask silently drops **all columns**, not just rows, causing a
+confusing `KeyError` two steps later instead of a clean empty result.
+This is fixed (masks are explicitly cast to `bool`), so an empty
+intermediate result now produces a valid (empty) output instead of
+crashing.

@@ -5,7 +5,7 @@ import argparse
 import logging
 from datetime import date, datetime
 
-from tc_pipeline import ORDER_ID_COLUMN_LETTER_DEFAULT, run_pipeline
+from tc_pipeline import ORDER_ID_COLUMN_LETTER_DEFAULT, inspect_columns, run_pipeline
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -38,7 +38,19 @@ def main() -> None:
         "red/green date-column coloring (default: live system date), "
         "e.g. --today 2026-07-16",
     )
+    parser.add_argument(
+        "--inspect",
+        action="store_true",
+        help="Don't run the pipeline — just print every expected column "
+        "(letter position, expected name, actual header found, and 5 "
+        "sample values) so you can eyeball a layout mismatch directly. "
+        "Run this first against a new file.",
+    )
     args = parser.parse_args()
+
+    if args.inspect:
+        inspect_columns(args.input_csv, order_id_letter=args.order_id_column)
+        return
 
     today = date.fromisoformat(args.today) if args.today else None
 

@@ -138,6 +138,30 @@ def resolve_letter_columns(
     return resolved, warnings
 
 
+def inspect_columns(csv_path: str, order_id_letter: str = ORDER_ID_COLUMN_LETTER_DEFAULT) -> None:
+    """Prints every letter-mapped column (what this pipeline expects at
+    each position) alongside the actual header and a few sample values
+    found in the file — for eyeballing a layout mismatch directly,
+    without running the full pipeline. Doesn't raise on a fully out-of-
+    range file; prints what it can and reports what's missing."""
+    header_df = pd.read_csv(csv_path, nrows=0)
+    headers = list(header_df.columns)
+    sample_df = pd.read_csv(csv_path, nrows=5, dtype=str)
+
+    all_letters = {**LETTER_COLUMNS, order_id_letter: "order_id (assumed)"}
+    print(f"File has {len(headers)} columns. Checking {len(all_letters)} expected positions:\n")
+    for letter in sorted(all_letters, key=col_letter_to_index):
+        expected_name = all_letters[letter]
+        idx = col_letter_to_index(letter)
+        if idx >= len(headers):
+            print(f"  {letter:>3} (expects {expected_name}): OUT OF RANGE — file only has {len(headers)} columns")
+            continue
+        actual_header = headers[idx]
+        match = "OK" if _normalize(actual_header) == _normalize(expected_name.split(" (")[0]) else "MISMATCH?"
+        samples = sample_df[actual_header].tolist() if actual_header in sample_df.columns else []
+        print(f"  {letter:>3} (expects {expected_name:<28}): found '{actual_header}' [{match}]  samples={samples}")
+
+
 # ===========================================================================
 # Loading
 # ===========================================================================
