@@ -51,7 +51,25 @@ def main() -> None:
 
     print("\nDone.")
     for k, v in summary.items():
+        if k in ("column_warnings", "order_item_status_value_counts"):
+            continue  # printed separately below
         print(f"  {k}: {v}")
+
+    if summary["column_warnings"]:
+        print("\nColumn warnings:")
+        for msg in summary["column_warnings"]:
+            print(f"  ⚠ {msg}")
+
+    if summary["after_status_filter"] == 0:
+        print(
+            f"\n0 rows survived the order-status filter (Step 2.1) out of "
+            f"{summary['input_rows']} input rows."
+        )
+        print(f"Column read as order_item_status: {summary['order_item_status_column_resolved']}")
+        if summary["order_item_status_value_counts"]:
+            print("Actual values found, with counts:")
+            for value, count in list(summary["order_item_status_value_counts"].items())[:10]:
+                print(f"  {value!r}: {count}")
 
 
 if __name__ == "__main__":

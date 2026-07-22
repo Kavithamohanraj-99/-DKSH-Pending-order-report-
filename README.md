@@ -1,12 +1,45 @@
-# tc-report-processor (v3)
+# tc-report-processor (v3, with diagnostics)
 
 Processes a TC Report CSV into a 3-sheet workbook: **Raw Data**,
 **Final Report**, **Pivot Summary**.
 
-Single flat file for the processing logic (`tc_pipeline.py`) — no
-subfolders — for the same reason as before: a prior package-based version
-of this repo repeatedly failed to fully upload to GitHub, causing
-`ModuleNotFoundError` on Streamlit Cloud.
+## Fixes in this update
+
+A real run against a 2070-row file produced 0 rows after Step 2.1 with no
+visible explanation. Two separate bugs caused that:
+
+1. **Column-mismatch and status-mismatch warnings only went to server
+   logs**, invisible in the Streamlit UI. Now `run_pipeline()` returns
+   them in its summary dict, and both `app.py` and `main.py` surface them
+   directly — including a table of the *actual* `order_item_status`
+   values found in your file with their counts, whenever Step 2.1 filters
+   out everything. This is the fix that actually matters for debugging:
+   next time this happens, you'll see immediately whether it's a wrong
+   column or unmatched status text, instead of just "0 rows."
+2. **A genuine pandas bug in the pipeline itself**: `.apply()` on an
+   *empty* Series returns `float64` dtype instead of `bool`, and indexing
+   a DataFrame with a non-bool empty mask silently drops **all columns**,
+   not just rows. This meant that if Step 2.1 ever filtered out
+   everything, the very next step would crash with a confusing
+   `KeyError` instead of completing with an empty (but valid) output.
+   Fixed by explicitly casting the mask to `bool`.
+3. **Status matching now normalizes spacing around `/`**, so
+   `"Accepted / Picked"` matches the whitelist the same as
+   `"ACCEPTED/PICKED"` — a formatting variant that would otherwise still
+   silently drop every row even with the diagnostics in place.
+
+If you still get 0 rows after this, the app will now tell you exactly
+which column it read as `order_item_status` and exactly what values it
+found there — that's enough to tell whether it's a column-position
+mismatch (wrong file layout) or a genuinely different status vocabulary
+than New/ACCEPTED-PICKED/READY TO SHIP.
+
+## Single flat file for the processing logic
+
+`tc_pipeline.py` sits directly next to `app.py`/`main.py` — no
+subfolders — because a prior package-based version of this repo
+repeatedly failed to fully upload to GitHub, causing `ModuleNotFoundError`
+on Streamlit Cloud.
 
 ```
 tc-report-processor/

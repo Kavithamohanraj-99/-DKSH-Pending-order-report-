@@ -75,6 +75,40 @@ if run_clicked:
 
     st.success("Done.")
 
+    if summary["column_warnings"]:
+        for msg in summary["column_warnings"]:
+            st.warning(f"⚠ {msg}")
+
+    if summary["after_status_filter"] == 0:
+        st.error(
+            "0 rows survived the order-status filter (Step 2.1) out of "
+            f"{summary['input_rows']} input rows. This almost always means "
+            "either the wrong column was read as order_item_status, or "
+            "your file's status text doesn't exactly match "
+            "'New' / 'ACCEPTED/PICKED' / 'READY TO SHIP'."
+        )
+        st.write(
+            f"**Column read as order_item_status:** "
+            f"`{summary['order_item_status_column_resolved']}`"
+        )
+        if summary["order_item_status_value_counts"]:
+            st.write("**Actual values found in that column, with counts:**")
+            counts_df = pd.DataFrame(
+                summary["order_item_status_value_counts"].items(),
+                columns=["Value found in file", "Count"],
+            )
+            st.dataframe(counts_df, use_container_width=True, hide_index=True)
+            st.caption(
+                "If the column above isn't order_item_status, your file's "
+                "columns don't line up with the letter positions this "
+                "pipeline assumes (B, G, J, AP, AQ, AS, AV, BD, BI, BO, BP, "
+                "BR) — check for extra/missing columns upstream. If it IS "
+                "the right column but none of these values match "
+                "'New' / 'ACCEPTED/PICKED' / 'READY TO SHIP', the status "
+                "text in your file uses different wording/formatting than "
+                "the spec's exact strings."
+            )
+
     m1, m2, m3 = st.columns(3)
     m1.metric("Input rows", summary["input_rows"])
     m2.metric("After filtering", summary["after_erp_filter"])

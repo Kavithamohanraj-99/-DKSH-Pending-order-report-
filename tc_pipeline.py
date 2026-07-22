@@ -108,11 +108,15 @@ def _normalize(name: str) -> str:
 
 def resolve_letter_columns(
     headers: list[str], letter_map: dict[str, str]
-) -> dict[str, str]:
-    """Returns {logical_name: actual_header_text}, resolved by position.
-    Logs a warning (doesn't raise) if the header found there doesn't
-    resemble the expected name."""
+) -> tuple[dict[str, str], list[str]]:
+    """Returns ({logical_name: actual_header_text}, [warning_messages]).
+    A warning is generated (not raised) if the header found at a letter's
+    position doesn't resemble the expected name — collected and returned
+    so callers (e.g. the Streamlit app) can surface it to the user instead
+    of it only reaching server logs, which is easy to miss and was the
+    actual cause of a silent 0-rows-survived run."""
     resolved: dict[str, str] = {}
+    warnings: list[str] = []
     for letter, expected_name in letter_map.items():
         idx = col_letter_to_index(letter)
         if idx >= len(headers):
@@ -123,16 +127,15 @@ def resolve_letter_columns(
             )
         actual_header = headers[idx]
         if _normalize(actual_header) != _normalize(expected_name):
-            logger.warning(
-                "Column %s: expected header resembling '%s' but found '%s'. "
-                "Proceeding with the actual header text found there — verify "
-                "this is really the right column before trusting the output.",
-                letter,
-                expected_name,
-                actual_header,
+            message = (
+                f"Column {letter}: expected a header resembling '{expected_name}' "
+                f"but found '{actual_header}'. Proceeding with '{actual_header}' — "
+                f"verify this is really the right column."
             )
+            logger.warning(message)
+            warnings.append(message)
         resolved[expected_name] = actual_header
-    return resolved
+    return resolved, warnings
 
 
 # ===========================================================================
@@ -142,14 +145,15 @@ def resolve_letter_columns(
 
 def load_tc_report(
     csv_path: str, order_id_letter: str = ORDER_ID_COLUMN_LETTER_DEFAULT
-) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, str], str]:
-    """Returns (raw_df, working_df, resolved_columns, order_id_header).
+) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, str], str, list[str]]:
+    """Returns (raw_df, working_df, resolved_columns, order_id_header,
+    column_warnings).
     raw_df: exact copy as read — becomes the untouched "Raw Data" sheet.
     working_df: a separate copy the rest of the pipeline mutates freely."""
     header_df = pd.read_csv(csv_path, nrows=0)
     headers = list(header_df.columns)
 
-    resolved = resolve_letter_columns(headers, LETTER_COLUMNS)
+    resolved, column_warnings = resolve_letter_columns(headers, LETTER_COLUMNS)
 
     order_id_idx = col_letter_to_index(order_id_letter)
     if order_id_idx >= len(headers):
@@ -168,7 +172,7 @@ def load_tc_report(
         keep_default_na=True,
     )
     working_df = raw_df.copy(deep=True)
-    return raw_df, working_df, resolved, order_id_header
+    return raw_df, working_df, resolved, order_id_header, column_warnings
 
 
 # ===========================================================================
@@ -207,9 +211,29 @@ def is_blank(value) -> bool:
 
 
 def filter_by_order_status(df: pd.DataFrame, order_item_status_column: str) -> pd.DataFrame:
-    status = df[order_item_status_column].astype(str).str.strip().str.casefold()
-    mask = status.isin(ALLOWED_ORDER_STATUSES)
+    # Normalize spacing around "/" in addition to case/whitespace, so e.g.
+    # "Accepted / Picked" still matches "ACCEPTED/PICKED" — a formatting
+    # variant that showed up in real data and would otherwise silently
+    # drop every row despite meaning the same status.
+    status = (
+        df[order_item_status_column]
+        .astype(str)
+        .str.strip()
+        .str.casefold()
+        .str.replace(r"\s*/\s*", "/", regex=True)
+    )
+    mask = status.isin(ALLOWED_ORDER_STATUSES).astype(bool)
     return df[mask].copy()
+
+
+def order_status_value_counts(df: pd.DataFrame, order_item_status_column: str) -> dict[str, int]:
+    """Diagnostic: raw (untrimmed, un-casefolded) order_item_status values
+    and their counts, most common first. Surfaced when Step 2.1 filters
+    out everything, so a whitelist mismatch (wrong column, or status text
+    that doesn't exactly match 'New'/'ACCEPTED/PICKED'/'READY TO SHIP')
+    is visible instead of silently producing an empty report."""
+    counts = df[order_item_status_column].astype(str).value_counts()
+    return counts.to_dict()
 
 
 # ===========================================================================
@@ -228,7 +252,7 @@ def filter_for_erp_investigation(
     thus survive at all). Of those, drop rows where order_item_status ==
     'New' AND payment_status == 'Pending' AND payment_methods != 'COD'.
     Everything else in the blank-erp subset survives."""
-    blank_mask = df[erp_column].apply(is_blank)
+    blank_mask = df[erp_column].apply(is_blank).astype(bool)
     working = df[blank_mask].copy()
 
     status = working[order_item_status_column].astype(str).str.strip().str.casefold()
@@ -436,7 +460,7 @@ def run_pipeline(
 ) -> dict:
     today = today or datetime.now().date()
 
-    raw_df, working_df, resolved, order_id_col = load_tc_report(
+    raw_df, working_df, resolved, order_id_col, column_warnings = load_tc_report(
         input_csv, order_id_letter=order_id_column_letter
     )
 
@@ -451,6 +475,22 @@ def run_pipeline(
     working_df = trim_all_string_fields(working_df)
 
     status_filtered_df = filter_by_order_status(working_df, order_item_status_col)
+
+    status_diagnostic: dict[str, int] | None = None
+    if len(status_filtered_df) == 0:
+        # Nothing survived Step 2.1 — almost always a column mismatch or a
+        # status-text mismatch, not a genuinely empty dataset. Capture the
+        # actual values found so the caller (e.g. the Streamlit app) can
+        # show them instead of just reporting "0 rows" with no clue why.
+        status_diagnostic = order_status_value_counts(working_df, order_item_status_col)
+        logger.warning(
+            "Step 2.1 (order_item_status whitelist) matched 0 of %d rows. "
+            "Resolved order_item_status column: '%s'. Actual values found "
+            "(top 10): %s",
+            len(working_df),
+            order_item_status_col,
+            dict(list(status_diagnostic.items())[:10]),
+        )
 
     filtered_df = filter_for_erp_investigation(
         status_filtered_df,
@@ -484,4 +524,7 @@ def run_pipeline(
         "after_erp_filter": len(filtered_df),
         "final_report_rows": len(final_df),
         "output_path": output_xlsx,
+        "column_warnings": column_warnings,
+        "order_item_status_column_resolved": order_item_status_col,
+        "order_item_status_value_counts": status_diagnostic,
     }
