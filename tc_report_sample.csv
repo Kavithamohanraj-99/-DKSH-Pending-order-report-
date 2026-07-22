@@ -1,0 +1,12 @@
+order_id,order_number,col_C,col_D,col_E,col_F,payment_status,col_H,col_I,order_item_status,col_K,col_L,col_M,col_N,col_O,col_P,col_Q,col_R,col_S,col_T,col_U,col_V,col_W,col_X,col_Y,col_Z,col_AA,col_AB,col_AC,col_AD,col_AE,col_AF,col_AG,col_AH,col_AI,col_AJ,col_AK,col_AL,col_AM,col_AN,col_AO,courier_name,tracking_number,col_AR,ordered_date,col_AT,col_AU,accepted_date,col_AW,col_AX,col_AY,col_AZ,col_BA,col_BB,col_BC,nickname,col_BE,col_BF,col_BG,col_BH,payment_methods,col_BJ,col_BK,col_BL,col_BM,col_BN,time_shippinglabel_printed,erp_reference_id,col_BQ,time_order_paid
+A3001,3001111111111111,,,,,Paid,,,Cancelled,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Kerry,TRK001,,2026-07-14,,,,,,,,,,,lazada-Hiruscar,,,,,COD,,,,,,,,,
+A3002,3002222222222222,,,,,Paid,,,DELIVERED,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Kerry,TRK001,,2026-07-14,,,,,,,,,,,lazada-Hiruscar,,,,,COD,,,,,,,,,
+A3003,3003333333333333,,,,,Pending,,,New,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Kerry,TRK001,,2026-07-14,,,,,,,,,,,shopee-Nizoral,,,,,CreditCard,,,,,,,,,
+A3004,3004444444444444,,,,,Pending,,,New,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Kerry,TRK001,,2026-07-14,,,,,,,,,,,lazada-Hiruscar,,,,,COD,,,,,,,,,
+A3005,3005555555555555,,,,,Paid,,,ACCEPTED/PICKED,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Kerry,TRK001,,2026-07-15,,,,,,,,,,,shopee-aquamaris,,,,,CreditCard,,,,,,,,,
+A3006,3006666666666666,,,,,Paid,,,READY TO SHIP,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Kerry,TRK001,,2026-07-16,,,,,,,,,,,shopee-aquamaris,,,,,CreditCard,,,,,,,,,
+A3007,3007777777777777,,,,,Pending,,,New,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Kerry,TRK001,,2026-07-16,,,,,,,,,,,tiktok-Nizoral,,,,,COD,,,,,,,,,
+A3008,3008888888888888,,,,,Paid,,,ACCEPTED/PICKED,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Kerry,TRK001,,2026-07-16,,,,,,,,,,,tiktok-Nizoral,,,,,CreditCard,,,,,,,12345678901,,
+A3005,3005555555555999,,,,,Paid,,,ACCEPTED/PICKED,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Kerry,TRK001,,2026-07-15,,,,,,,,,,,shopee-aquamaris,,,,,CreditCard,,,,,,,,,
+A3010,3010101010101010,,,,,Paid,,,RETURN REQUESTED,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Kerry,TRK001,,2026-07-16,,,,,,,,,,,tiktok-Nizoral,,,,,COD,,,,,,,,,
+A3011,3011111111111111,,,,,  Pending ,,, New ,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Kerry,TRK001,,2026-07-15,,,,,,,,,,,lazada-Hiruscar,,,,, COD ,,,,,,,,,
