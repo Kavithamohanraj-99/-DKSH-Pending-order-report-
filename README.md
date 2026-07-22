@@ -1,113 +1,113 @@
-# TC Report Processor
+# tc-report-processor (v3)
 
-A complete Python-based automated solution to process TC Reports (CSV), identify pending orders requiring ERP investigation, generate a cleaned final report, generate new status alerts, and create a pivot summary. 
+Processes a TC Report CSV into a 3-sheet workbook: **Raw Data**,
+**Final Report**, **Pivot Summary**.
 
-This repository includes both a **Streamlit Web Application** for interactive browser-based processing, and a **Command Line Interface (CLI)** script for automation.
+Single flat file for the processing logic (`tc_pipeline.py`) — no
+subfolders — for the same reason as before: a prior package-based version
+of this repo repeatedly failed to fully upload to GitHub, causing
+`ModuleNotFoundError` on Streamlit Cloud.
 
-## 📊 Features
-
-1. **Raw Data Backup**: Automatically preserves the original imported data inside a `Raw Data` sheet without modifications.
-2. **Robust Data Cleaning**: Automatically trims whitespace and converts order numbers to text to avoid scientific notation or auto-formatting.
-3. **Smart Column Mapping**: Automatically detects required columns based on common names and allows custom overrides via UI dropdowns or CLI arguments.
-4. **Order Filter for ERP Investigation**: Retains only `New`, `ACCEPTED/PICKED`, and `READY TO SHIP` orders with blank ERP IDs (filtering out specific payment and status combinations like non-COD pending orders).
-5. **New Status Alert**: Automatically identifies orders that have been in the `New` status for more than 1 hour.
-6. **Pivot Table Summary**: Automatically generates a pivot summary table grouping order counts by Marketplace Channel (rows) and order dates (columns, formatted as `DD-MMM` like `14-Jul`). It includes row totals, column totals, and overall grand totals.
-
----
-
-## 📁 Repository Structure
-
-```text
-├── .gitignore               # Standard git ignore definitions
-├── README.md                # Project documentation
-├── requirements.txt         # Package dependencies
-├── processor.py             # Core data processing pipeline (Parts 1-5)
-├── app.py                   # Streamlit web dashboard (Part 6)
-├── process_report.py        # Command-line interface script (Part 6)
-└── test_process_report.py   # Unit test suite
+```
+tc-report-processor/
+├── app.py              # Streamlit dashboard
+├── main.py              # CLI
+├── tc_pipeline.py        # all processing logic
+├── requirements.txt
+├── sample_data/
+│   └── tc_report_sample.csv
+└── README.md
 ```
 
----
+## What changed from the previous version of this spec
 
-## ⚙️ Installation & Setup
+| Change | Detail |
+|---|---|
+| **New Status Alert sheet removed** | Part 6 now lists only 3 output sheets. This pipeline no longer builds that alert. |
+| **Final Report columns completely changed** | Now `order_number, order_item_status, payment_status, courier_name, tracking_number, ordered_date, accepted_date, nickname, payment_methods, time_shippinglabel_printed, erp_reference_id, time_order_paid` — resolved by spreadsheet letter (B, J, G, AP, AQ, AS, AV, BD, BI, BO, BP, BR). Note this drops `order_id` and `marketplace_channel` as retained columns entirely. |
+| **Pivot rows = nickname (BD), displayed as "Marketplace Channel"** | See assumption below — the spec says "rows = Nickname" but the example table's header reads "Marketplace Channel". |
+| **New color-coding rule** | Each date column in the Pivot Summary is filled red if the date is before today, green if it's today. Future dates are left unfilled (not specified). |
+| **Dedup happens before column deletion** | order_id isn't a retained Final Report column, so dedup on order_id has to happen while it's still present in the working data, before the "delete all remaining columns" step. |
 
-1. **Ensure Python 3.8+** is installed on your computer.
-2. Navigate to the project directory:
-   ```bash
-   cd order_processor
-   ```
-3. Create a Python virtual environment:
-   ```bash
-   python -m venv venv
-   ```
-4. Activate the virtual environment:
-   * **Windows (Command Prompt / PowerShell)**:
-     ```powershell
-     .\venv\Scripts\activate
-     ```
-   * **macOS / Linux**:
-     ```bash
-     source venv/bin/activate
-     ```
-5. Install the required dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+## Two assumptions made to resolve gaps in the spec
 
----
+1. **order_id's column isn't specified anywhere** (it's referenced only
+   for dedup — "Remove duplicate records using order_id" — but never
+   given a letter). Defaulted to **Column A**, the conventional
+   primary-key position in these exports. Override with
+   `--order-id-column` (CLI) or the sidebar field (dashboard) if your
+   file uses a different column.
+2. **Pivot row label vs. row values**: the spec's instruction says
+   `rows = Nickname (BD)`, but the reference example's row header is
+   "Marketplace Channel" with values like `lazada-Hiruscar`,
+   `shopee-aquamaris`. This pipeline pivots on the actual `nickname`
+   column's values (assuming that field already contains
+   channel-style identifiers, which the example supports) and just
+   labels the header "Marketplace Channel" to match the example. If your
+   real `nickname` values are just plain shop nicknames without a
+   channel prefix, the pivot will still work — the values will simply
+   look different from the reference image.
 
-## 🖥️ How to Run
+## Run it
 
-### Option A: Streamlit Web Dashboard (Recommended)
-
-To run the interactive web interface:
+Dashboard:
 ```bash
+pip install -r requirements.txt
 streamlit run app.py
 ```
-This will automatically launch the app in your default web browser (usually at `http://localhost:8501`).
-* **Upload** your TC Report CSV file.
-* **Review Column Mappings** in the sidebar. The app auto-detects them, but you can manually adjust them if needed.
-* **Process & Download**: Click "Process report" and download the complete multi-sheet Excel file.
 
-### Option B: Command Line Interface (CLI)
-
-To process files from your terminal or scripts:
+CLI:
 ```bash
-python process_report.py <path_to_input.csv> <path_to_output.xlsx>
+python main.py path/to/tc_report.csv -o output.xlsx
+python main.py sample_data/tc_report_sample.csv -o demo.xlsx --today 2026-07-16
 ```
 
-#### CLI Options:
-* `--current-time "YYYY-MM-DD HH:MM:SS"`: Specify a custom date/time to calculate the 1-hour threshold for the New Status Alert. Defaults to the current system time.
-* Column override flags (e.g., `--marketplace-channel channel` or `--payment-methods payment_methods`) to map custom headers.
+`--today` controls the Pivot Summary's red/green coloring — useful for
+reproducible test runs; omit it in production to use the live date.
 
-Example:
-```bash
-python process_report.py sample_tc_report.csv output.xlsx --current-time "2026-07-16 09:01:59"
+## Deploy to Streamlit Community Cloud
+
+1. **Push with `git push`, not the GitHub web upload UI** if at all
+   possible. If you must use the web UI, upload all files in one single
+   drag-and-drop.
+2. Confirm `app.py`, `main.py`, `tc_pipeline.py`, and `requirements.txt`
+   are all visible at your repo's root on GitHub before deploying — if
+   `tc_pipeline.py` is missing, you'll get `ModuleNotFoundError`
+   regardless of anything on the code side.
+3. On [share.streamlit.io](https://share.streamlit.io), point the app at
+   this repo, branch `main`, main file path `app.py`.
+
+## Other interpretive notes
+
+- **Columns are resolved by spreadsheet letter position**, per the spec
+  (B, G, J, AP, AQ, AS, AV, BD, BI, BO, BP, BR) — logs a warning if the
+  header found at that position doesn't resemble the expected name.
+- **Step 2.1's whitelist is implemented literally**: "Retain only records
+  with the following statuses" — anything not in {New, ACCEPTED/PICKED,
+  READY TO SHIP} is dropped, including values not on the spec's explicit
+  removal list either.
+- **Overwrite-in-place preserved from the prior version**: if the output
+  file already exists, only the 3 target sheets are replaced; any other
+  sheet in that workbook (e.g. manual notes) is left untouched.
+- **Pivot Summary is a computed static table with cell-level fills**, not
+  a native interactive Excel PivotTable — openpyxl can't create those.
+
+## Tested against `sample_data/tc_report_sample.csv`
+
+11 synthetic rows covering: each removal status, the New+Pending+non-COD
+removal, ACCEPTED/PICKED and READY TO SHIP retention, a populated-erp
+row, a duplicate order_id, whitespace-padded fields, and orders dated
+today/yesterday/two-days-ago (to exercise the red/green coloring).
+Hand-verified results:
+
+```
+input_rows: 11
+after_status_filter: 8
+after_erp_filter: 6
+final_report_rows: 5
 ```
 
----
-
-## 🧪 Running Unit Tests
-
-To run the automated unit tests verifying the processing rules, filtering, and data integrity:
-```bash
-python -m unittest test_process_report.py
-```
-*(All tests should pass successfully)*
-
----
-
-## 📋 CSV Data Schema
-
-The tool identifies columns by their header name (case-insensitive and trimmed of space). By default, it looks for standard names or fallback indices:
-
-| Column | Fallback Index | Default Search Patterns | Description |
-| :--- | :--- | :--- | :--- |
-| **Marketplace Channel** | 0 | `Marketplace Channel`, `channel`, `marketplace` | Used for row grouping in the Pivot Summary |
-| **order_number** | 1 | `order_number`, `order_no`, `order number` | Treated as text/general format |
-| **payment_status** | 6 | `payment_status`, `payment status` | Used for Part 2 filtering rules |
-| **order_id** | 7 | `order_id`, `order id` | Used to remove duplicates |
-| **order_status** | 8 | `order_status`, `order status` | Included in final report |
-| **order_item_status** | 9 | `order_item_status`, `order_item status` | Retains only `New`, `ACCEPTED/PICKED`, `READY TO SHIP` |
-| **payment_methods** | 60 | `payment_methods`, `payment_method` | Used for Part 2 filtering rules |
-| **erp_reference_id** | 67 | `erp_reference_id`, `erp_ref_id` | Evaluates only blank/whitespace values |
+Pivot Summary date columns confirmed colored correctly (two red past-date
+columns, one green today column), and data cells — not just headers — are
+filled. Overwrite-in-place was re-tested: pre-seeding the output path
+with an unrelated "Notes" sheet survives a re-run.

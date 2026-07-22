@@ -1,159 +1,108 @@
-import streamlit as st
-import pandas as pd
-import io
-from datetime import datetime
-from processor import process_report_data, find_column
+"""Streamlit dashboard for tc_pipeline.
 
-# Set page config for professional aesthetics
-st.set_page_config(
-    page_title="TC Report Processor",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded"
+Deploy: point Streamlit Community Cloud at this file (main file path =
+app.py). No credentials needed — this only processes an uploaded CSV in
+memory and hands back a workbook.
+"""
+
+from __future__ import annotations
+
+import io
+import tempfile
+from datetime import date, datetime
+from pathlib import Path
+
+import pandas as pd
+import streamlit as st
+from openpyxl import load_workbook
+
+from tc_pipeline import ORDER_ID_COLUMN_LETTER_DEFAULT, run_pipeline
+
+st.set_page_config(page_title="TC Report Processor", page_icon="📊", layout="wide")
+
+st.title("📊 TC Report Processor")
+st.caption(
+    "Upload a TC Report CSV to generate a 3-sheet workbook: Raw Data, "
+    "Final Report, Pivot Summary."
 )
 
-# Custom Styling
-st.markdown("""
-<style>
-    .main-title {
-        font-family: 'Outfit', 'Inter', sans-serif;
-        font-weight: 800;
-        font-size: 2.8rem;
-        background: linear-gradient(135deg, #FF4B4B, #FF8F8F);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom: 0.2rem;
-    }
-    .subtitle {
-        font-family: 'Inter', sans-serif;
-        color: #6c757d;
-        font-size: 1.1rem;
-        margin-bottom: 2rem;
-    }
-    .card {
-        background-color: #f8f9fa;
-        border-radius: 10px;
-        padding: 20px;
-        border-left: 5px solid #FF4B4B;
-        margin-bottom: 1.5rem;
-    }
-</style>
-""", unsafe_allow_html=True)
+with st.sidebar:
+    st.header("Options")
+    order_id_column = st.text_input(
+        "order_id column letter (for dedup only)",
+        value=ORDER_ID_COLUMN_LETTER_DEFAULT,
+        help="The spec dedups on order_id but never says which column "
+        "that is (it isn't one of the retained Final Report columns). "
+        "Defaults to Column A — change if your file differs.",
+    )
+    use_custom_today = st.checkbox(
+        "Override 'today' for Pivot Summary coloring",
+        value=False,
+        help="Controls which date column is colored green vs red. Leave "
+        "unchecked to use the live system date.",
+    )
+    custom_today = None
+    if use_custom_today:
+        custom_today = st.date_input("Today's date")
 
-st.markdown('<h1 class="main-title">📊 TC Report Processor</h1>', unsafe_allow_html=True)
-st.markdown('<p class="subtitle">Upload a TC Report CSV to generate a 4-sheet workbook: Raw Data, New Status Alert, Final Report, Pivot Summary.</p>', unsafe_allow_html=True)
+uploaded_file = st.file_uploader("TC Report CSV", type=["csv"])
 
-# File uploader
-uploaded_file = st.file_uploader("TC Report CSV", type=["csv"], help="Upload the original TC Report CSV file")
+if uploaded_file is None:
+    st.info("Upload a CSV to get started.")
+    st.stop()
 
-if uploaded_file is not None:
-    try:
-        # Load the CSV file
-        # We read a small chunk first to get the columns and allow mappings without loading the full 30MB+ in memory repeatedly
-        preview_df = pd.read_csv(uploaded_file, nrows=5)
-        cols = list(preview_df.columns)
-        
-        # Automatically map column headers
-        column_mapping = {
-            'marketplace_channel': find_column(preview_df, ['Marketplace Channel', 'marketplace_channel', 'channel', 'marketplace'], 0),
-            'order_number': find_column(preview_df, ['order_number', 'order number', 'ordernumber', 'order_no', 'order no'], 1),
-            'payment_status': find_column(preview_df, ['payment_status', 'payment status', 'paymentstatus', 'pay_status'], 6),
-            'order_id': find_column(preview_df, ['order_id', 'order id', 'orderid'], 7),
-            'order_status': find_column(preview_df, ['order_status', 'order status', 'orderstatus'], 8),
-            'order_item_status': find_column(preview_df, ['order_item_status', 'order item status', 'orderitemstatus', 'item_status'], 9),
-            'courier_name': find_column(preview_df, ['courier_name', 'courier name', 'couriername', 'courier'], 10),
-            'tracking_number': find_column(preview_df, ['tracking_number', 'tracking number', 'trackingnumber', 'tracking_no', 'awb'], 11),
-            'ordered_date': find_column(preview_df, ['ordered_date', 'ordered date', 'ordereddate', 'order_date', 'created_at'], 12),
-            'accepted_date': find_column(preview_df, ['accepted_date', 'accepted date', 'accepteddate', 'accept_date'], 13),
-            'nickname': find_column(preview_df, ['nickname', 'nick name', 'username', 'buyer_username'], 14),
-            'time_shippinglabel_printed': find_column(preview_df, ['time_shippinglabel_printed', 'time shippinglabel printed', 'label_printed_time'], 15),
-            'time_order_paid': find_column(preview_df, ['time_order_paid', 'time order paid', 'order_paid_time'], 16),
-            'payment_methods': find_column(preview_df, ['payment_methods', 'payment methods', 'paymentmethod', 'payment_method', 'pay_method'], 60),
-            'erp_reference_id': find_column(preview_df, ['erp_reference_id', 'erp reference id', 'erpreferenceid', 'erp_ref_id'], 67)
-        }
+run_clicked = st.button("▶ Process report", type="primary")
 
-        # Process report button
-        if st.button("▶ Process report", type="primary"):
-            with st.spinner("Processing file... Please wait."):
-                # Load the full CSV data
-                # Reset uploader file pointer
-                uploaded_file.seek(0)
-                # Read all columns as string first to prevent losing precision/sci-notation on B (order_number)
-                raw_df = pd.read_csv(uploaded_file, dtype=str)
+if run_clicked:
+    with tempfile.TemporaryDirectory() as tmp:
+        input_path = Path(tmp) / "input.csv"
+        input_path.write_bytes(uploaded_file.getvalue())
+        output_path = Path(tmp) / "output.xlsx"
 
-                ref_datetime = datetime.now()
-
-                # Process
-                new_status_alert, final_report, pivot_summary = process_report_data(
-                    raw_df, 
-                    column_mapping, 
-                    current_time=ref_datetime
+        try:
+            with st.spinner("Processing..."):
+                summary = run_pipeline(
+                    input_csv=str(input_path),
+                    output_xlsx=str(output_path),
+                    order_id_column_letter=order_id_column or ORDER_ID_COLUMN_LETTER_DEFAULT,
+                    today=custom_today,
                 )
+        except Exception as e:  # noqa: BLE001
+            st.error(f"Processing failed: {e}")
+            st.stop()
 
-                # Generate excel workbook in memory
-                excel_buffer = io.BytesIO()
-                with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-                    # 1. Raw Data (Backup of the original imported data)
-                    raw_df.to_excel(writer, sheet_name="Raw Data", index=False)
-                    
-                    # 2. New Status Alert
-                    new_status_alert.to_excel(writer, sheet_name="New Status Alert", index=False)
-                    
-                    # 3. Final Report
-                    final_report.to_excel(writer, sheet_name="Final Report", index=False)
-                    
-                    # 4. Pivot Summary
-                    pivot_summary.to_excel(writer, sheet_name="Pivot Summary", index=True)
+        output_bytes = output_path.read_bytes()
 
-                st.success("🎉 Report processed successfully!")
+    st.success("Done.")
 
-                # Download button
-                st.download_button(
-                    label="📥 Download Excel Workbook",
-                    data=excel_buffer.getvalue(),
-                    file_name="ERP_Pending_Order_Report.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Input rows", summary["input_rows"])
+    m2.metric("After filtering", summary["after_erp_filter"])
+    m3.metric("Final Report rows", summary["final_report_rows"])
+
+    st.download_button(
+        "⬇ Download workbook",
+        data=output_bytes,
+        file_name=f"TC_Report_Processed_{datetime.now().strftime('%Y%m%d')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+    st.subheader("Preview")
+    wb = load_workbook(io.BytesIO(output_bytes))
+    tabs = st.tabs(wb.sheetnames)
+    for tab, sheet_name in zip(tabs, wb.sheetnames):
+        with tab:
+            ws = wb[sheet_name]
+            rows = list(ws.iter_rows(values_only=True))
+            if not rows:
+                st.write("(empty)")
+                continue
+            preview_df = pd.DataFrame(rows[1:], columns=rows[0])
+            st.dataframe(preview_df.head(200), use_container_width=True, hide_index=True)
+            if len(preview_df) > 200:
+                st.caption(f"Showing first 200 of {len(preview_df)} rows.")
+            if sheet_name == "Pivot Summary":
+                st.caption(
+                    "Color-coding (red = past dates, green = today) is visible "
+                    "in the downloaded .xlsx, not in this plain preview table."
                 )
-
-                # Show previews in tabs
-                tab1, tab2, tab3, tab4 = st.tabs([
-                    "📄 Raw Data Preview", 
-                    "🚨 New Status Alert", 
-                    "🏆 Final Report", 
-                    "🧮 Pivot Summary"
-                ])
-
-                with tab1:
-                    st.markdown("### Original Input Data (Top 5 rows)")
-                    st.dataframe(raw_df.head(5))
-                    st.metric("Total Records", len(raw_df))
-
-                with tab2:
-                    st.markdown("### Orders in 'New' Status for > 1 Hour")
-                    st.dataframe(new_status_alert)
-                    st.metric("Alert Records Count", len(new_status_alert))
-
-                with tab3:
-                    st.markdown("### Cleaned ERP Investigation Final Report")
-                    st.dataframe(final_report)
-                    st.metric("Cleaned Records Count", len(final_report))
-
-                with tab4:
-                    st.markdown("### Pivot Summary Table")
-                    st.dataframe(pivot_summary)
-
-    except Exception as e:
-        st.error(f"Processing failed: {str(e)}")
-        st.info("Please make sure you have mapped all required columns correctly in the sidebar.")
-else:
-    # Instructions card when file is not uploaded
-    st.markdown("""
-    <div class="card">
-        <h3>ℹ️ Instructions</h3>
-        <p>1. Upload your TC Report CSV using the file uploader above.</p>
-        <p>2. The app will auto-detect columns based on common patterns.</p>
-        <p>3. If your CSV has non-standard header names, update the mappings in the left sidebar.</p>
-        <p>4. Click 'Process report' to clean, filter, and compile your worksheets.</p>
-        <p>5. Download the final workbook containing all 4 required sheets.</p>
-    </div>
-    """, unsafe_allow_html=True)
